@@ -1,0 +1,96 @@
+"""
+╔══════════════════════════════════════════════════════════════════╗
+║     PROFESSOR AURELIUS ACADEMY — Android APK (Kivy/KivyMD)      ║
+║     main.py — App entry point & Screen Manager                   ║
+╚══════════════════════════════════════════════════════════════════╝
+"""
+
+import os
+import sys
+
+# ── Android-safe paths ────────────────────────────────────────────
+try:
+    from android.storage import app_storage_path          # noqa: F401
+    from android.permissions import request_permissions, Permission
+    ANDROID = True
+    APP_DIR = app_storage_path()
+    request_permissions([
+        Permission.INTERNET,
+        Permission.READ_EXTERNAL_STORAGE,
+        Permission.WRITE_EXTERNAL_STORAGE,
+    ])
+except ImportError:
+    ANDROID = False
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DATA_DIR = os.path.join(APP_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# ── Kivy config BEFORE any kivy import ───────────────────────────
+os.environ.setdefault("KIVY_NO_ENV_CONFIG", "1")
+
+from kivy.config import Config
+Config.set("graphics", "resizable", "1")
+Config.set("input",    "mouse", "mouse,multitouch_on_demand")
+
+from kivy.app        import App
+from kivy.lang       import Builder
+from kivy.uix.screenmanager import ScreenManager, FadeTransition
+from kivy.core.window import Window
+from kivy.utils      import platform
+
+# ── Screens ───────────────────────────────────────────────────────
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "modules"))
+
+from screens.login_screen  import LoginScreen
+from screens.chat_screen   import ChatScreen
+from screens.settings_screen import SettingsScreen
+
+from modules.db import AcademyDB
+
+Window.clearcolor = (0.051, 0.051, 0.102, 1)   # #0d0d1a
+
+KV = """
+#:import FadeTransition kivy.uix.screenmanager.FadeTransition
+
+ScreenManager:
+    transition: FadeTransition(duration=0.2)
+    LoginScreen:
+        name: 'login'
+    ChatScreen:
+        name: 'chat'
+    SettingsScreen:
+        name: 'settings'
+"""
+
+
+class AureliusApp(App):
+    title        = "Aurelius Academy"
+    icon         = "assets/icon.png"
+    db           = None
+    current_user = {}
+
+    def build(self):
+        self.db = AcademyDB(db_path=os.path.join(DATA_DIR, "academy.db"))
+        root    = Builder.load_string(KV)
+
+        # Inject shared state into screens
+        root.get_screen("login").app    = self
+        root.get_screen("chat").app     = self
+        root.get_screen("settings").app = self
+
+        return root
+
+    def on_login(self, user: dict):
+        self.current_user = user
+        chat = self.root.get_screen("chat")
+        chat.on_user_login(user)
+        self.root.current = "chat"
+
+    def on_logout(self):
+        self.current_user = {}
+        self.root.current = "login"
+
+
+if __name__ == "__main__":
+    AureliusApp().run()

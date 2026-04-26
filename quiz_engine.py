@@ -1,0 +1,83 @@
+name: Build Aurelius Academy APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:        # manual trigger button in GitHub UI
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            git zip unzip autoconf libtool \
+            libffi-dev libssl-dev libsqlite3-dev \
+            libgstreamer1.0-dev gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good build-essential \
+            openjdk-17-jdk ccache
+
+      - name: Cache pip & buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+
+      - name: Install buildozer & Cython
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython==0.29.37
+
+      - name: Create placeholder assets
+        run: |
+          mkdir -p assets
+          python3 -c "
+          from PIL import Image, ImageDraw
+          img = Image.new('RGBA', (512,512), (13,13,26,255))
+          d = ImageDraw.Draw(img)
+          d.ellipse([100,100,412,412], fill=(201,168,76,255))
+          d.text((180,200), 'A', fill=(13,13,26,255))
+          img.save('assets/icon.png')
+          img.save('assets/splash.png')
+          " 2>/dev/null || python3 -c "
+          # Fallback: minimal valid PNG
+          import base64, os
+          # 1x1 dark pixel PNG
+          png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==')
+          os.makedirs('assets', exist_ok=True)
+          open('assets/icon.png','wb').write(png)
+          open('assets/splash.png','wb').write(png)
+          "
+
+      - name: Build APK (debug)
+        run: |
+          buildozer -v android debug
+        env:
+          BUILDOZER_WARN_ON_ROOT: "0"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurelius-academy-apk
+          path: bin/*.apk
+          retention-days: 30
+
+      - name: Show APK info
+        run: |
+          ls -lh bin/*.apk 2>/dev/null && echo "✅ APK built successfully!" || echo "❌ No APK found"
